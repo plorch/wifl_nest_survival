@@ -1,0 +1,117 @@
+---
+title: "DataReformatForMark"
+author: "Patrick D. lorch"
+date: "2022-09-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import
+
+
+
+
+```{r data}
+library(rgdal)
+library(dplyr)
+library(tidyr)
+
+wifl_nest_check_2022 = readOGR("C:/Users/PatrickLorch/SSRS/Weldon Field Projects - PROJECTS/Owen's Valley WIFL Project/Data/Willow_Flycatcher_Monitoring2", "Nest_check")
+
+# Fix truncated names
+names(wifl_nest_check_2022)
+names(wifl_nest_check_2022)[3:11] = 
+  c("number_of_host_eggs", "number_of_host_young", "number_of_bhco", 
+     "bhco_management", "time_at_nest", "suspected_phase", 
+     "nest_status", "adult_activity", "nestling_age")
+names(wifl_nest_check_2022)[15:16] = c("distance_to_water", "type_of_check")
+names(wifl_nest_check_2022)
+
+# Make check date into date variable
+wifl_nest_check_2022$check_date = wifl_nest_check_2022$check_date %>%
+  as.Date()
+
+# nest survival
+
+
+# Pull out data from spatial_points_dataframe
+wifl_nc_2022 = wifl_nest_check_2022@data
+
+# Make some tables to check stuff
+## Find duplicates then either fix and do again or 
+##  trust distinct to do right thing (fix is better)
+wifl_nc_2022 %>%
+    group_by(nest_id, check_date, nest_status, 
+             number_of_bhco) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    filter(n > 1L)
+
+nest_by_date_pivot_of_status = wifl_nc_2022 %>%
+  select(nest_id, check_date, nest_status) %>%
+  distinct() %>%
+  pivot_wider(
+    names_from = check_date,
+    values_from = nest_status)
+
+# Re-code suspected_phase in various ways
+unique(wifl_nc_2022$suspected_phase)
+data.frame(orig = as.factor(wifl_nc_2022$suspected_phase),
+           new = (as.factor(wifl_nc_2022$suspected_phase) %>%
+  recode('lay' = 1, 'inc' = 1, 'nstl' = 1, .default = 0)))
+
+```
+
+## Map to check locations
+
+
+
+```{r leafletnests}
+library(leaflet)
+library(RColorBrewer)
+library(sp)
+
+wiflnc2022.sdf = spTransform(wifl_nest_check_2022, CRS("+proj=longlat +datum=WGS84"))
+
+pal <- colorFactor(c("blue", "orange", "black", 
+                     "green", "white", "red"), 
+                   domain = c("unknown", "incomplete", NA,
+                              "complete/intact", "missing" , "damaged"))
+# pal <- colorNumeric(
+#   palette = "Reds",
+#   domain = as.numeric(substr(wiflnc2022.sdf$number_of_host_eggs, 1, 1)))
+# 
+# icons <- awesomeIcons(
+#   icon = 'color-wand-outline',#'ios-close' 'wifi-sharp'
+#   iconColor = 'black',
+#   library = 'ion',
+#   markerColor = ifelse(is.na(points$sig),"#d9d9d9",pal(points$sig))
+# )
+
+leaflet(wiflnc2022.sdf) %>%
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles('Esri.WorldImagery',group = "Esri World Imagery") %>%
+  addCircleMarkers(color = pal(wiflnc2022.sdf$nest_status),
+                   popup = ~paste("Eggs:",
+                                  as.character(wiflnc2022.sdf$number_of_host_eggs), 
+                                  "Status:",
+                                  as.character(wiflnc2022.sdf$nest_status),
+                                  "BHCO:",
+                                  as.character(wiflnc2022.sdf$number_of_bhco), sep = "; "),
+                   label = ~paste(as.character(wiflnc2022.sdf$nest_id),
+                                  as.character(wiflnc2022.sdf$check_date), 
+                                  sep = " -- "),
+                   clusterOptions = markerClusterOptions()
+                   ) %>%
+  addLayersControl(
+    baseGroups = c("OSM (default)", "Esri World Imagery"),
+    options = layersControlOptions(collapsed = TRUE)
+  ) 
+# %>%
+#   addLegend(pal = pal(wiflnc2022.sdf$nest_status), values = wiflnc2022.sdf$nest_status, )
+
+
+```
+
